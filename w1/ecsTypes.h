@@ -79,6 +79,13 @@ struct MeleeDamage
   float damage = 2.f;
 };
 
+struct HealAbility
+{
+  float restoration = 0.f;
+  uint8_t cooldown = 5;
+  uint8_t cooldownCounter = 0;
+};
+
 struct HealAmount
 {
   float amount = 0.f;
