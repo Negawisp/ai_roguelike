@@ -48,6 +48,58 @@ static void add_attack_sm(flecs::entity entity)
   });
 }
 
+static void add_berserker_sm(flecs::entity entity)
+{
+  entity.get([](StateMachine &sm)
+  {
+    int patrol = sm.addState(create_patrol_state(3.f));
+    int moveToEnemy = sm.addState(create_move_to_enemy_state());
+
+    sm.addTransition(create_or_transition(create_hitpoints_less_than_transition(60.f),
+                                          create_enemy_available_transition(3.f)
+                     ),
+                     patrol, moveToEnemy);
+
+    sm.addTransition(create_negate_transition(
+                       create_or_transition(create_hitpoints_less_than_transition(60.f),
+                                            create_enemy_available_transition(3.f)
+                       )
+                     ),
+                     moveToEnemy, patrol);
+  });
+}
+
+static void add_healer_sm(flecs::entity entity, float hpRegen)
+{
+  entity.get([hpRegen](StateMachine &sm)
+  {
+    int patrol = sm.addState(create_patrol_state(3.f));
+    int moveToEnemy = sm.addState(create_move_to_enemy_state());
+    int heal = sm.addState(create_heal_self_state(hpRegen));
+
+    // Transitions to "heal" state have the highest priority
+    sm.addTransition(create_hitpoints_less_than_transition(60.f),
+                     patrol, heal);
+    sm.addTransition(create_hitpoints_less_than_transition(60.f),
+                     moveToEnemy, heal);
+
+    // A transition from "heal" to "moveToEnemy" state has one more condion than a transition from "heal" to "patrol" state, thus the former has a higher priority
+    sm.addTransition(create_and_transition(
+                       create_negate_transition(create_hitpoints_less_than_transition(60.f)),
+                       create_enemy_available_transition(3.f)
+                     ),
+                     heal, moveToEnemy);
+    sm.addTransition(create_negate_transition(create_hitpoints_less_than_transition(60.f)),
+                     heal, patrol);
+
+    // Other transitions' order doesn't matter
+    sm.addTransition(create_enemy_available_transition(3.f),
+                     patrol, moveToEnemy);
+    sm.addTransition(create_negate_transition(create_enemy_available_transition(3.f)),
+                     moveToEnemy, patrol);
+  });
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, uint32_t color)
 {
   return ecs.entity()
@@ -134,10 +186,11 @@ void init_roguelike(flecs::world &ecs)
 {
   register_roguelike_systems(ecs);
 
+  add_healer_sm(create_monster(ecs, 1, 1, 0xff00ff00), 1.f);
   add_patrol_attack_flee_sm(create_monster(ecs, 5, 5, 0xffee00ee));
   add_patrol_attack_flee_sm(create_monster(ecs, 10, -5, 0xffee00ee));
   add_patrol_flee_sm(create_monster(ecs, -5, -5, 0xff111111));
-  add_attack_sm(create_monster(ecs, -5, 5, 0xff00ff00));
+  //add_attack_sm(create_monster(ecs, -5, 5, 0xff00ff00));
 
   create_player(ecs, 0, 0);
 

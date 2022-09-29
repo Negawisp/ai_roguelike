@@ -96,6 +96,23 @@ public:
   }
 };
 
+class HealSelfState : public State
+{
+private:
+  float _hpRegen = 10.f;
+public:
+  HealSelfState(float hpRegen): _hpRegen(hpRegen) {}
+  void enter() const override {}
+  void exit() const override {}
+  void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
+  {
+    entity.set([&](Hitpoints& hp)
+    {
+      hp.hitpoints += _hpRegen;
+    });
+  }
+};
+
 class PatrolState : public State
 {
   float patrolDist;
@@ -205,6 +222,23 @@ public:
   }
 };
 
+class OrTransition : public StateTransition
+{
+    const StateTransition* lhs; // we own it
+    const StateTransition* rhs; // we own it
+public:
+    OrTransition(const StateTransition* in_lhs, const StateTransition* in_rhs) : lhs(in_lhs), rhs(in_rhs) {}
+    ~OrTransition() override
+    {
+        delete lhs;
+        delete rhs;
+    }
+
+    bool isAvailable(flecs::world& ecs, flecs::entity entity) const override
+    {
+        return lhs->isAvailable(ecs, entity) || rhs->isAvailable(ecs, entity);
+    }
+};
 
 // states
 State *create_attack_enemy_state()
@@ -221,6 +255,10 @@ State *create_flee_from_enemy_state()
   return new FleeFromEnemyState();
 }
 
+State* create_heal_self_state(float hpRegen)
+{
+  return new HealSelfState(hpRegen);
+}
 
 State *create_patrol_state(float patrol_dist)
 {
@@ -252,8 +290,12 @@ StateTransition *create_negate_transition(StateTransition *in)
 {
   return new NegateTransition(in);
 }
-StateTransition *create_and_transition(StateTransition *lhs, StateTransition *rhs)
+StateTransition* create_and_transition(StateTransition* lhs, StateTransition* rhs)
 {
-  return new AndTransition(lhs, rhs);
+    return new AndTransition(lhs, rhs);
+}
+StateTransition* create_or_transition(StateTransition* lhs, StateTransition* rhs)
+{
+    return new OrTransition(lhs, rhs);
 }
 
