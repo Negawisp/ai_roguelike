@@ -51,6 +51,68 @@ struct Selector : public CompoundNode
   }
 };
 
+struct Parallel : public CompoundNode
+{
+    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        for (BehNode* node : nodes)
+        {
+            BehResult res = node->update(ecs, entity, bb);
+            if (res != BEH_RUNNING)
+                return res;
+        }
+        return BEH_RUNNING;
+    }
+};
+
+struct Negate : public CompoundNode
+{
+    CompoundNode& pushNode(BehNode* node)
+    {
+        assert(nodes.size() == 0 && "NOT-node can only have one child");
+        return CompoundNode::pushNode(node);
+    }
+
+    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        BehNode* node = nodes[0];
+        BehResult res = node->update(ecs, entity, bb);
+        assert(res != BEH_RUNNING && "Child of NEGATE-node is prohibited to be able to be RUNNING");
+
+        return res == BEH_FAIL ? BEH_SUCCESS : BEH_FAIL;
+    }
+};
+
+struct Or : public CompoundNode
+{
+    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        for (BehNode* node : nodes)
+        {
+            BehResult res = node->update(ecs, entity, bb);
+            assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
+            if (res == BEH_SUCCESS)
+                return res;
+        }
+        return BEH_FAIL;
+    }
+};
+
+struct And : public CompoundNode
+{
+    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        for (BehNode* node : nodes)
+        {
+            BehResult res = node->update(ecs, entity, bb);
+            assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
+            if (res == BEH_FAIL)
+                return res;
+        }
+        return BEH_SUCCESS;
+    }
+};
+
 struct MoveToEntity : public BehNode
 {
   size_t entityBb = size_t(-1); // wraps to 0xff...
@@ -212,6 +274,37 @@ BehNode *selector(const std::vector<BehNode*> &nodes)
   for (BehNode *node : nodes)
     sel->pushNode(node);
   return sel;
+}
+
+BehNode *parallel(const std::vector<BehNode*>& nodes)
+{
+  Parallel *parallel = new Parallel;
+  for (BehNode *node : nodes)
+    parallel->pushNode(node);
+  return parallel;
+}
+
+BehNode *negate(BehNode* node)
+{
+  Negate *negate = new Negate;
+  negate->pushNode(node);
+  return negate;
+}
+
+BehNode *orNode(const std::vector<BehNode*>& nodes)
+{
+  Or *orNode = new Or;
+  for (BehNode *node : nodes)
+    orNode->pushNode(node);
+  return orNode;
+}
+
+BehNode *andNode(const std::vector<BehNode*>& nodes)
+{
+  And* andNode = new And;
+  for (BehNode* node : nodes)
+    andNode->pushNode(node);
+  return andNode;
 }
 
 BehNode *move_to_entity(flecs::entity entity, const char *bb_name)
