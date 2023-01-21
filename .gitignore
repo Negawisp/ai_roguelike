@@ -51,6 +51,8 @@
 *.vcxproj.*
 *.iobj
 *.ipdb
+*.vsidx
+*.lock
 
 # Cmake
 Makefile

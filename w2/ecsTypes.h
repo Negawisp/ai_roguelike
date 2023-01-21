@@ -112,3 +112,10 @@ struct Team
 
 struct TextureSource {};
 
+struct CanCollect {};
+struct IsTreasure {};
+
+struct NextEntity
+{
+  flecs::entity entity;
+};

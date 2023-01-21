@@ -25,6 +25,55 @@ static void create_minotaur_beh(flecs::entity e)
   e.set(BehaviourTree{root});
 }
 
+static void create_collector_beh(flecs::entity e)
+{
+  e.add<CanCollect>();
+  e.set(Blackboard{});
+  BehNode* root =
+    selector({
+      sequence({
+        is_low_hp(50.f),
+        find_enemy(e, 4.f, "flee_enemy"),
+        flee(e, "flee_enemy")
+      }),
+      sequence({
+        find_enemy(e, 2.f, "attack_enemy"),
+        move_to_entity(e, "attack_enemy")
+      }), 
+      sequence({
+        find_treasure(e, "treasure"),
+        move_to_entity(e, "treasure")
+      }),
+      sequence({
+        find_enemy(e, FLT_MAX, "attack_enemy"),
+        move_to_entity(e, "attack_enemy")
+      })
+    });
+  e.set(BehaviourTree{ root });
+}
+
+static void create_warden_beh(flecs::entity e, flecs::entity firstWaypoint)
+{
+  e.set(Blackboard{});
+  BehNode* root =
+    selector({
+      sequence({
+        is_low_hp(50.f),
+        find_enemy(e, 4.f, "flee_enemy"),
+        flee(e, "flee_enemy")
+      }),
+      sequence({
+        find_enemy(e, 3.f, "attack_enemy"),
+        move_to_entity(e, "attack_enemy")
+      }), 
+      sequence({
+        choose_waypoint(e, firstWaypoint, "waypoint"),
+        move_to_entity(e, "waypoint")
+      })
+    });
+  e.set(BehaviourTree{ root });
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src)
 {
   flecs::entity textureSrc = ecs.entity(texture_src);
@@ -52,6 +101,7 @@ static void create_player(flecs::world &ecs, int x, int y, const char *texture_s
     //.set(Color{0xee, 0xee, 0xee, 0xff})
     .set(Action{EA_NOP})
     .add<IsPlayer>()
+    .add<CanCollect>()
     .set(Team{0})
     .set(PlayerInput{})
     .set(NumActions{2, 0})
@@ -63,6 +113,7 @@ static void create_player(flecs::world &ecs, int x, int y, const char *texture_s
 static void create_heal(flecs::world &ecs, int x, int y, float amount)
 {
   ecs.entity()
+    .add<IsTreasure>()
     .set(Position{x, y})
     .set(HealAmount{amount})
     .set(Color{0xff, 0x44, 0x44, 0xff});
@@ -71,9 +122,22 @@ static void create_heal(flecs::world &ecs, int x, int y, float amount)
 static void create_powerup(flecs::world &ecs, int x, int y, float amount)
 {
   ecs.entity()
+    .add<IsTreasure>()
     .set(Position{x, y})
     .set(PowerupAmount{amount})
     .set(Color{0xff, 0xff, 0x00, 0xff});
+}
+
+static flecs::entity create_waypoint(flecs::world& ecs, int x, int y)
+{
+  return ecs.entity().set(Position{x, y});
+}
+
+static flecs::entity create_waypoint(flecs::world& ecs, int x, int y, flecs::entity nextEntity)
+{
+  return ecs.entity()
+    .set(Position{ x, y })
+    .set(NextEntity{ nextEntity });
 }
 
 static void register_roguelike_systems(flecs::world &ecs)
@@ -133,10 +197,29 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
+  auto wp1 = create_waypoint(ecs, -6, -6);
+  auto wp2 = create_waypoint(ecs, -6, -4, wp1);
+  auto wp3 = create_waypoint(ecs, -4, -4, wp2);
+  auto wp4 = create_waypoint(ecs, -4, -6, wp3);
+  wp1.set(NextEntity{ wp4 });
+
+  auto wp5 = create_waypoint(ecs, +12, 0);
+
+  /*
   create_minotaur_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
   create_minotaur_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
   create_minotaur_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
   create_minotaur_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
+  */
+
+  // Yellow guy, a collector
+  create_collector_beh(create_monster(ecs, 5, 0, Color{ 0xff, 0xff, 0x00, 0xff }, "minotaur_tex"));
+
+  // Red guy, patrols in a square
+  create_warden_beh(create_monster(ecs, -6, -6, Color{ 0xff, 0x11, 0x11, 0xff }, "minotaur_tex"), wp1);
+
+  // Green guy, walks to a point then stops
+  create_warden_beh(create_monster(ecs, -12, 0, Color{ 0x11, 0xff, 0x11, 0xff }, "minotaur_tex"), wp5);
 
   create_player(ecs, 0, 0, "swordsman_tex");
 
@@ -227,12 +310,12 @@ static void process_actions(flecs::world &ecs)
     });
   });
 
-  static auto playerPickup = ecs.query<const IsPlayer, const Position, Hitpoints, MeleeDamage>();
+  static auto collectors = ecs.query<const CanCollect, const Position, Hitpoints, MeleeDamage>();
   static auto healPickup = ecs.query<const Position, const HealAmount>();
   static auto powerupPickup = ecs.query<const Position, const PowerupAmount>();
   ecs.defer([&]
   {
-    playerPickup.each([&](const IsPlayer&, const Position &pos, Hitpoints &hp, MeleeDamage &dmg)
+    collectors.each([&](const CanCollect&, const Position &pos, Hitpoints &hp, MeleeDamage &dmg)
     {
       healPickup.each([&](flecs::entity entity, const Position &ppos, const HealAmount &amt)
       {

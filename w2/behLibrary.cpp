@@ -53,64 +53,64 @@ struct Selector : public CompoundNode
 
 struct Parallel : public CompoundNode
 {
-    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    for (BehNode* node : nodes)
     {
-        for (BehNode* node : nodes)
-        {
-            BehResult res = node->update(ecs, entity, bb);
-            if (res != BEH_RUNNING)
-                return res;
-        }
-        return BEH_RUNNING;
+      BehResult res = node->update(ecs, entity, bb);
+      if (res != BEH_RUNNING)
+        return res;
     }
-};
-
-struct Negate : public CompoundNode
-{
-    CompoundNode& pushNode(BehNode* node)
-    {
-        assert(nodes.size() == 0 && "NOT-node can only have one child");
-        return CompoundNode::pushNode(node);
-    }
-
-    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
-    {
-        BehNode* node = nodes[0];
-        BehResult res = node->update(ecs, entity, bb);
-        assert(res != BEH_RUNNING && "Child of NEGATE-node is prohibited to be able to be RUNNING");
-
-        return res == BEH_FAIL ? BEH_SUCCESS : BEH_FAIL;
-    }
+    return BEH_RUNNING;
+  }
 };
 
 struct Or : public CompoundNode
 {
-    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    for (BehNode* node : nodes)
     {
-        for (BehNode* node : nodes)
-        {
-            BehResult res = node->update(ecs, entity, bb);
-            assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
-            if (res == BEH_SUCCESS)
-                return res;
-        }
-        return BEH_FAIL;
+      BehResult res = node->update(ecs, entity, bb);
+      assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
+      if (res == BEH_SUCCESS)
+        return res;
     }
+    return BEH_FAIL;
+  }
 };
 
 struct And : public CompoundNode
 {
-    BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    for (BehNode* node : nodes)
     {
-        for (BehNode* node : nodes)
-        {
-            BehResult res = node->update(ecs, entity, bb);
-            assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
-            if (res == BEH_FAIL)
-                return res;
-        }
-        return BEH_SUCCESS;
+      BehResult res = node->update(ecs, entity, bb);
+      assert(res != BEH_RUNNING && "Children of OR-node are prohibited to be able to be RUNNING");
+      if (res == BEH_FAIL)
+        return res;
     }
+    return BEH_SUCCESS;
+  }
+};
+
+struct Negate : public CompoundNode
+{
+  CompoundNode& pushNode(BehNode* node)
+  {
+    assert(nodes.size() == 0 && "NOT-node can only have one child");
+    return CompoundNode::pushNode(node);
+  }
+
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    BehNode* node = nodes[0];
+    BehResult res = node->update(ecs, entity, bb);
+    assert(res != BEH_RUNNING && "Child of NEGATE-node is prohibited to be able to be RUNNING");
+
+    return res == BEH_FAIL ? BEH_SUCCESS : BEH_FAIL;
+  }
 };
 
 struct MoveToEntity : public BehNode
@@ -202,6 +202,45 @@ struct FindEnemy : public BehNode
   }
 };
 
+struct FindTreasure : public BehNode
+{
+  size_t entityBb = size_t(-1);
+
+  FindTreasure(flecs::entity entity, const char *bb_name)
+  {
+    entityBb = reg_entity_blackboard_var<flecs::entity>(entity, bb_name);
+  }
+
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = BEH_FAIL;
+    static auto treasureQuery = ecs.query<const IsTreasure, const Position>();
+
+    entity.set([&](const Position &pos, const Team &t)
+    {
+      flecs::entity closest;
+      float closestDist = FLT_MAX;
+      Position closestPos;
+      treasureQuery.each([&](flecs::entity treasure, const IsTreasure&, const Position &tpos)
+      {
+        float curDist = dist(tpos, pos);
+        if (curDist < closestDist)
+        {
+          closestDist = curDist;
+          closestPos = tpos;
+          closest = treasure;
+        }
+      });
+      if (ecs.is_valid(closest))
+      {
+        bb.set<flecs::entity>(entityBb, closest);
+        res = BEH_SUCCESS;
+      }
+    });
+    return res;
+  }
+};
+
 struct Flee : public BehNode
 {
   size_t entityBb = size_t(-1);
@@ -259,6 +298,55 @@ struct Patrol : public BehNode
   }
 };
 
+struct ChooseWaypoint : public BehNode
+{
+  size_t waypointEntityBb = size_t(-1);
+  size_t waypointPosBb = size_t(-1);
+
+  ChooseWaypoint(flecs::entity entity, flecs::entity firstWaypoint, const char* bb_waypointName)
+  {
+    waypointEntityBb = reg_entity_blackboard_var<flecs::entity>(entity, bb_waypointName);
+    waypointPosBb = reg_entity_blackboard_var<Position>(entity, bb_waypointName);
+
+    firstWaypoint.get([&](Position &pos)
+    {
+      entity.set([&](Blackboard &bb)
+      {
+        bb.set<flecs::entity>(waypointEntityBb, firstWaypoint);
+        bb.set<Position>(waypointPosBb, pos);
+      });
+    });
+  }
+
+  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult ret = BEH_SUCCESS;
+
+    entity.get([&](const Position &pos)
+    {
+      Position waypointPos = bb.get<Position>(waypointPosBb);
+
+      // if entity has reached its waypoint
+      if (dist(pos, waypointPos) < 0.5f)
+      {
+        flecs::entity waypointEntity = bb.get<flecs::entity>(waypointEntityBb);
+        bool hasNext = waypointEntity.get([&](const NextEntity &nextWaypoint)
+        {
+          nextWaypoint.entity.get([&](const Position &nextPosition)
+          {
+            bb.set<flecs::entity>(waypointEntityBb, nextWaypoint.entity);
+            bb.set<Position>(waypointPosBb, nextPosition);
+          });
+        });
+
+        if (!hasNext)
+          ret = BEH_FAIL;
+      }
+    });
+
+    return ret;
+  }
+};
 
 BehNode *sequence(const std::vector<BehNode*> &nodes)
 {
@@ -322,6 +410,11 @@ BehNode *find_enemy(flecs::entity entity, float dist, const char *bb_name)
   return new FindEnemy(entity, dist, bb_name);
 }
 
+BehNode *find_treasure(flecs::entity entity, const char* bb_name)
+{
+  return new FindTreasure(entity, bb_name);
+}
+
 BehNode *flee(flecs::entity entity, const char *bb_name)
 {
   return new Flee(entity, bb_name);
@@ -332,3 +425,7 @@ BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name)
   return new Patrol(entity, patrol_dist, bb_name);
 }
 
+BehNode *choose_waypoint(flecs::entity entity, flecs::entity firstWaypoint, const char* bb_waypointEntityName)
+{
+  return new ChooseWaypoint(entity, firstWaypoint, bb_waypointEntityName);
+}
