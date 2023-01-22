@@ -67,6 +67,7 @@ static void create_warden_beh(flecs::entity e, flecs::entity firstWaypoint)
         move_to_entity(e, "attack_enemy")
       }), 
       sequence({
+        move_to_entity(e, "waypoint"),
         choose_waypoint(e, firstWaypoint, "waypoint"),
         move_to_entity(e, "waypoint")
       })
