@@ -7,6 +7,7 @@
 
 struct CompoundNode : public BehNode
 {
+  int runningIdx = -1;
   std::vector<BehNode*> nodes;
 
   virtual ~CompoundNode()
@@ -21,17 +22,49 @@ struct CompoundNode : public BehNode
     nodes.push_back(node);
     return *this;
   }
+
+  BehResult react(ReactionEvent event, flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    if (nodes.size() == 0)
+      return BEH_FAIL;
+
+    if (runningIdx > -1)
+    {
+      BehResult res = nodes[runningIdx]->react(event, ecs, entity, bb);
+      assert(res != BEH_RUNNING && "Reaction behaviour can't be running");
+      if (res == BEH_SUCCESS)
+        return BEH_SUCCESS;
+    }
+
+    // Branch is not running OR the running node failed to react
+    for (BehNode *node : nodes)
+    {
+      BehResult res = node->react(event, ecs, entity, bb);
+      assert(res != BEH_RUNNING && "Reaction behaviour can't be running");
+      if (res == BEH_SUCCESS)
+        return BEH_SUCCESS;
+    }
+
+    return BEH_FAIL;
+  }
 };
 
 struct Sequence : public CompoundNode
 {
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
+    runningIdx = -1;
+    int i = 0;
+
     for (BehNode *node : nodes)
     {
       BehResult res = node->update(ecs, entity, bb);
+      if (res == BEH_RUNNING)
+        runningIdx = i;
       if (res != BEH_SUCCESS)
         return res;
+
+      i++;
     }
     return BEH_SUCCESS;
   }
@@ -41,11 +74,18 @@ struct Selector : public CompoundNode
 {
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
+    runningIdx = -1;
+    int i = 0;
+
     for (BehNode *node : nodes)
     {
       BehResult res = node->update(ecs, entity, bb);
+      if (res == BEH_RUNNING)
+        runningIdx = i;
       if (res != BEH_FAIL)
         return res;
+
+      i++;
     }
     return BEH_FAIL;
   }
@@ -53,7 +93,7 @@ struct Selector : public CompoundNode
 
 struct Parallel : public CompoundNode
 {
-  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
     for (BehNode* node : nodes)
     {
@@ -62,6 +102,23 @@ struct Parallel : public CompoundNode
         return res;
     }
     return BEH_RUNNING;
+  }
+
+  BehResult react(ReactionEvent event, flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    if (nodes.size() == 0)
+      return BEH_FAIL;
+
+    // All the children will react. Success if at least one running child succeeded reacting.
+    BehResult ret = BEH_FAIL;
+    for (BehNode* node : nodes) {
+      BehResult res = node->react(event, ecs, entity, bb);
+      assert(res != BEH_RUNNING && "Reaction behaviour can't be running");
+      if (res == BEH_SUCCESS)
+        ret = BEH_SUCCESS;
+    }
+
+    return ret;
   }
 };
 
@@ -348,6 +405,74 @@ struct ChooseWaypoint : public BehNode
   }
 };
 
+struct NotifyEnemyNear : public BehNode
+{
+  float radius;
+  size_t enemyBb = size_t(-1);
+  const char* notificationPayloadName = "";
+
+  NotifyEnemyNear(flecs::entity entity, float notificationRadius, const char* bb_enemyName, const char* bb_notificationPayload)
+  {
+    radius = notificationRadius;
+    enemyBb = reg_entity_blackboard_var<flecs::entity>(entity, bb_enemyName);
+    notificationPayloadName = bb_notificationPayload;
+  }
+
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    static auto alliesQuery = ecs.query<const Position, const Team, BehaviourTree, Blackboard>();
+    flecs::entity enemy = bb.get<flecs::entity>(enemyBb);
+
+    if (!enemy.is_alive())
+      return BEH_FAIL;
+
+    entity.get([&](const Position& pos, const Team& team)
+    {
+      alliesQuery.each([&](flecs::entity ally, const Position &apos, const Team &at, BehaviourTree &abt, Blackboard &abb)
+      {
+        if (ally != entity &&
+            at.team == team.team &&
+            dist_sq(pos, apos) < radius*radius)
+        {
+          size_t payloadBb = abb.regName<flecs::entity>(notificationPayloadName);
+          abb.set<flecs::entity>(payloadBb, enemy);
+          abt.react(ReactionEvent::ENEMY_IS_NEAR, ecs, ally, abb);
+        }
+      });
+    });
+    return BEH_SUCCESS;
+  }
+};
+
+struct ReactSelectTarget : public BehNode
+{
+  ReactionEvent rEvent;
+  size_t enemyBb = size_t(-1);
+  size_t notificationPayloadBb = size_t(-1);
+
+  ReactSelectTarget(flecs::entity entity, ReactionEvent reactionEvent, const char* bb_notificationPayloadName, const char* bb_enemy)
+  {
+    rEvent = reactionEvent;
+    enemyBb = reg_entity_blackboard_var<flecs::entity>(entity, bb_enemy);
+    notificationPayloadBb = reg_entity_blackboard_var<flecs::entity>(entity, bb_notificationPayloadName);
+  }
+
+  BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+  {
+    return BEH_SUCCESS;
+  }
+
+  BehResult react(ReactionEvent e, flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    if (e != rEvent)
+      return BEH_FAIL;
+
+    flecs::entity payload = bb.get<flecs::entity>(notificationPayloadBb);
+    bb.set<flecs::entity>(enemyBb, payload);
+    return BEH_SUCCESS;
+  }
+};
+
 BehNode *sequence(const std::vector<BehNode*> &nodes)
 {
   Sequence *seq = new Sequence;
@@ -428,4 +553,14 @@ BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name)
 BehNode *choose_waypoint(flecs::entity entity, flecs::entity firstWaypoint, const char* bb_waypointEntityName)
 {
   return new ChooseWaypoint(entity, firstWaypoint, bb_waypointEntityName);
+}
+
+BehNode *notify_enemy_near(flecs::entity entity, float notificationRadius, const char *bb_enemy, const char *notificationPayloadName)
+{
+  return new NotifyEnemyNear(entity, notificationRadius, bb_enemy, notificationPayloadName);
+}
+
+BehNode *react_select_target(flecs::entity entity, ReactionEvent rEvent, const char *bb_notificationPayloadName, const char *bb_enemy)
+{
+  return new ReactSelectTarget(entity, rEvent, bb_notificationPayloadName, bb_enemy);
 }

@@ -75,7 +75,30 @@ static void create_warden_beh(flecs::entity e, flecs::entity firstWaypoint)
   e.set(BehaviourTree{ root });
 }
 
-static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src)
+static void create_gargoyle_beh(flecs::entity e)
+{
+  e.set(Blackboard{});
+  BehNode *root =
+    selector({
+      sequence({
+        is_low_hp(50.f),
+        find_enemy(e, 4.f, "flee_enemy"),
+        flee(e, "flee_enemy")
+      }),
+      sequence({
+        find_enemy(e, 3.f, "attack_enemy"),
+        notify_enemy_near(e, 8.f, "attack_enemy", "new_enemy"),
+        move_to_entity(e, "attack_enemy")
+      }),
+      sequence({
+        move_to_entity(e, "attack_enemy")
+      }),
+      react_select_target(e, ReactionEvent::ENEMY_IS_NEAR, "new_enemy", "attack_enemy")
+    });
+  e.set(BehaviourTree{root});
+}
+
+static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src, int team)
 {
   flecs::entity textureSrc = ecs.entity(texture_src);
   return ecs.entity()
@@ -86,7 +109,7 @@ static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, 
     .set(Color{col})
     .add<TextureSource>(textureSrc)
     .set(StateMachine{})
-    .set(Team{1})
+    .set(Team{team})
     .set(NumActions{1, 0})
     .set(MeleeDamage{20.f})
     .set(Blackboard{});
@@ -206,21 +229,27 @@ void init_roguelike(flecs::world &ecs)
 
   auto wp5 = create_waypoint(ecs, +12, 0);
 
-  /*
-  create_minotaur_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_minotaur_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_minotaur_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
-  create_minotaur_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
-  */
+  Color black = Color{ 0x5f, 0x5f, 0x5f, 0xff };
+  // Swarm of black gargoyles, enemies
+  create_gargoyle_beh(create_monster(ecs, +12, +0, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +14, +0, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +16, +0, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +12, +2, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +14, +2, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +16, +2, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +12, -2, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +14, -2, black, "minotaur_tex", 1));
+  create_gargoyle_beh(create_monster(ecs, +16, -2, black, "minotaur_tex", 1));
+  
 
-  // Yellow guy, a collector
-  create_collector_beh(create_monster(ecs, 5, 0, Color{ 0xff, 0xff, 0x00, 0xff }, "minotaur_tex"));
+  // Red guy, patrols in a square, enemy
+  create_warden_beh(create_monster(ecs, -6, -6, Color{ 0xff, 0x11, 0x11, 0xff }, "minotaur_tex", 1), wp1);
 
-  // Red guy, patrols in a square
-  create_warden_beh(create_monster(ecs, -6, -6, Color{ 0xff, 0x11, 0x11, 0xff }, "minotaur_tex"), wp1);
+  // Yellow guy, a collector, ally
+  create_collector_beh(create_monster(ecs, 5, 0, Color{ 0xff, 0xff, 0x00, 0xff }, "minotaur_tex", 0));
 
-  // Green guy, walks to a point then stops
-  create_warden_beh(create_monster(ecs, -12, 0, Color{ 0x11, 0xff, 0x11, 0xff }, "minotaur_tex"), wp5);
+  // Green guy, walks to a point then stops, ally
+  create_warden_beh(create_monster(ecs, -12, 0, Color{ 0x11, 0xff, 0x11, 0xff }, "minotaur_tex", 0), wp5);
 
   create_player(ecs, 0, 0, "swordsman_tex");
 

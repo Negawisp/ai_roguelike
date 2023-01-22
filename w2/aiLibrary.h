@@ -27,3 +27,5 @@ BehNode *find_treasure(flecs::entity entity, const char *bb_name);
 BehNode *flee(flecs::entity entity, const char *bb_name);
 BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name);
 BehNode *choose_waypoint(flecs::entity entity, flecs::entity firstWaypoint, const char* bb_waypointEntityName);
+BehNode *notify_enemy_near(flecs::entity entity, float notificationRadius, const char *bb_enemy, const char *notificationPayloadName);
+BehNode *react_select_target(flecs::entity entity, ReactionEvent rEvent, const char *bb_notificationPayloadName, const char *bb_enemy);
