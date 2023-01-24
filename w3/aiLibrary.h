@@ -30,4 +30,4 @@ BehNode *find_enemy(flecs::entity entity, float dist, const char *bb_name);
 BehNode *flee(flecs::entity entity, const char *bb_name);
 BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name);
 BehNode *patch_up(float thres);
-
+BehNode *choose_waypoint(flecs::entity entity, flecs::entity firstWaypoint, const char* bb_waypointName);

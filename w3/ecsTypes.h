@@ -129,3 +129,7 @@ struct ActionLog
   size_t capacity = 5;
 };
 
+struct NextEntity
+{
+  flecs::entity entity;
+};

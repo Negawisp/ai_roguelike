@@ -10,7 +10,7 @@ SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(hw1 "Build first homework" OFF)
 option(hw2 "Build second homework" OFF)
-option(hw3 "Build third homework" OFF)
+option(hw3 "Build third homework" ON)
 option(hw4 "Build 4th homework" ON)
 option(hw5 "Build 5th homework" ON)
 

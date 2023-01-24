@@ -54,6 +54,71 @@ static void create_fuzzy_monster_beh(flecs::entity e)
   e.set(BehaviourTree{root});
 }
 
+static void create_hive_beh(flecs::entity e, float atk_rad, float ally_rad,
+                           float base_rad1, float base_rad2, flecs::entity base_wp)
+{
+  float b_atk_enemy = 100.0f;
+  float k_atk_enemy = -b_atk_enemy / atk_rad;
+
+  float k_atk_base = 100 / (base_rad1 - base_rad2);
+  float b_atk_base = -k_atk_base * base_rad2;
+
+  float k_ret_ally = 100 / ally_rad;
+
+  float k_ret_base = 100 / (base_rad2 - base_rad1);
+  float b_ret_base = -k_ret_base * base_rad1;
+
+  e.set(Blackboard{});
+  BehNode* root =
+    utility_selector({
+      std::make_pair(
+        sequence({
+          patrol(e, FLT_MAX, "patrol_pos")
+        }),
+        [](Blackboard& bb)
+        {
+          return 50.f;
+        }
+      ),
+      std::make_pair(
+        sequence({
+          find_enemy(e, atk_rad, "attack_enemy"),
+          move_to_entity(e, "attack_enemy")
+        }),
+        [b_atk_base, k_atk_base, b_atk_enemy, k_atk_enemy](Blackboard& bb)
+        {
+          const float dist_enemy = bb.get<float>("enemyDist");
+          const float dist_base = bb.get<float>("baseDist");
+
+          float ub = max(0.0f, b_atk_base + k_atk_base * dist_base);
+          float ue = max(0.0f, b_atk_enemy + k_atk_enemy * dist_enemy);
+
+          return min(ue, ub);
+        }
+      ),
+      std::make_pair(
+        sequence({
+          choose_waypoint(e, base_wp, "base_wp"),
+          move_to_entity(e, "base_wp")
+        }),
+        [k_ret_ally, b_ret_base, k_ret_base](Blackboard& bb)
+        {
+          const float dist_ally = bb.get<float>("allyDist");
+          const float dist_base = bb.get<float>("baseDist");
+
+          float ua = max(0.0f, k_ret_ally * dist_ally);
+          float ub = max(0.0f, b_ret_base + k_ret_base * dist_base);
+
+          float step = min(ua, ub);
+          float slope = (ua + ub) / 5;
+          return min(step, slope);
+        }
+      )
+      });
+  e.add<WorldInfoGatherer>();
+  e.set(BehaviourTree{ root });
+}
+
 static void create_minotaur_beh(flecs::entity e)
 {
   e.set(Blackboard{});
@@ -124,6 +189,11 @@ static void create_powerup(flecs::world &ecs, int x, int y, float amount)
     .set(Color{0xff, 0xff, 0x00, 0xff});
 }
 
+static flecs::entity create_waypoint(flecs::world& ecs, int x, int y)
+{
+  return ecs.entity().set(Position{ x, y });
+}
+
 static void register_roguelike_systems(flecs::world &ecs)
 {
   ecs.system<PlayerInput, Action, const IsPlayer>()
@@ -191,12 +261,189 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
-  create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
 
-  create_player(ecs, 0, 0, "swordsman_tex");
+  Color antColor = Color{ 0, 255, 0, 255 };
+  auto baseWp = create_waypoint(ecs, 0, 0);
+  
+  // Create hive
+  {
+    create_ant_beh(create_monster(ecs, +0, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, 0, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, +2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, +4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, +6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, +8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, -2, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, -4, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, -6, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+
+    create_ant_beh(create_monster(ecs, +0, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -2, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -4, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -6, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, -8, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +2, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +4, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +6, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+    create_ant_beh(create_monster(ecs, +8, -8, antColor, "minotaur_tex"),
+      /*atk_rad*/ 10, /*ally_rad*/ 12, /*base_rad1*/ 10, /*base_rad2*/ 15, baseWp);
+  }
+
+  create_player(ecs, 0, 10, "swordsman_tex");
 
   create_powerup(ecs, 7, 7, 10.f);
   create_powerup(ecs, 10, -6, 10.f);
@@ -363,7 +610,8 @@ static void gather_world_info(flecs::world &ecs)
     // first gather all needed names (without cache)
     push_info_to_bb(bb, "hp", hp.hitpoints);
     float numAllies = 0; // note float
-    float closestEnemyDist = 100.f;
+    float closestEnemyDist = FLT_MAX;
+    float closestAllyDist = FLT_MAX;
     alliesQuery.each([&](const Position &apos, const Team &ateam)
     {
       constexpr float limitDist = 5.f;
@@ -375,9 +623,22 @@ static void gather_world_info(flecs::world &ecs)
         if (enemyDist < closestEnemyDist)
           closestEnemyDist = enemyDist;
       }
+      if (team.team == ateam.team)
+      {
+        const float allyDist = dist(pos, apos);
+        if (allyDist < closestAllyDist)
+          closestAllyDist = allyDist;
+      }
     });
+
+    size_t waypointPosBb = bb.regName<Position>("base_wp");
+    Position waypointPos = bb.get<Position>(waypointPosBb);
+    float baseDist = dist(pos, waypointPos);
+
     push_info_to_bb(bb, "alliesNum", numAllies);
     push_info_to_bb(bb, "enemyDist", closestEnemyDist);
+    push_info_to_bb(bb, "allyDist", closestAllyDist);
+    push_info_to_bb(bb, "baseDist", baseDist);
   });
 }
 
